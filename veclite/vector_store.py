@@ -2,21 +2,59 @@ from veclite.vector_store_schema import VectorParams
 from veclite.clsutering import Clustering
 from veclite.database import SqliteDB
 from veclite.distances import cosine_similarity
+from veclite.kmean_tree import KmeanTree
 from typing import List
 import numpy as np
 import pickle
-
+import os
 
 class VectorStore:
 
-    def __init__(self,vector_dim: int = None,random_proj=False) -> None:
+    def __init__(self,vector_dim: int = 384,
+                 random_proj=False,
+                 build_tree=False,
+                 persist_tree=False) -> None:
 
-        self.clustering = Clustering(random_proj,vector_dim)
-        self.sql_db = SqliteDB()
+
+        self.build_tree = build_tree
+
+        if not build_tree:
+
+            self.sql_db = SqliteDB()
+            self.clustering = Clustering(random_proj,vector_dim)
+        
+        else:
+
+            self.kmean_tree = KmeanTree()
+            self.tree = None
+            self.persist_tree = persist_tree
+
+
 
     
+    
+    def add_vectors(self,vector_params: List[VectorParams]):
+        if self.build_tree:
+            self.tree = self.kmean_tree.create_tree(vector_params)
+            
+            if self.persist_tree:
+                self.kmean_tree.save_tree(self.tree)
 
-    def add(self,vectors_params: List[VectorParams]):
+        else:
+            self._add(vectors_params=vector_params)
+
+        
+    def uspert_vectors(self,vector_params: List[VectorParams]):
+        if self.build_tree:
+
+            self.tree = self.kmean_tree.upsert(tree=self.tree,vector_params=vector_params)
+            if self.persist_tree:
+                self.kmean_tree.save_tree(self.tree)
+
+
+
+
+    def _add(self,vectors_params: List[VectorParams]):
 
 
         if len(vectors_params)>30:
@@ -37,6 +75,13 @@ class VectorStore:
 
     def delete_all(self):
         self.sql_db.delete_all()
+
+    def search_vectors_from_tree(self,input_vector,top_k=20):
+
+        results = self.kmean_tree.search(self.tree,point=input_vector,array=[],top_k=top_k)
+
+        return results[:top_k]
+
 
     def search_from_all(self,input_vector,top_k=20):
         results = self.sql_db.fetch_vectors()
